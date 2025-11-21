@@ -1,15 +1,15 @@
 # main.py
-# Telegram bot for selling accounts with admin panel using aiogram
+# Telegram bot updated to use Heroku environment variables
 
 import asyncio
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import CommandStart
 import json
-import os
 
-TOKEN = "PUT_YOUR_TOKEN_HERE"
-ADMIN_ID = 123456789  # Replace with owner Telegram ID
+TOKEN = os.getenv("TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 DATA_FILE = "storage.json"
 
