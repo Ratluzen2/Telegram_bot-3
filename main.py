@@ -17,6 +17,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 DATA_FILE = "storage.json"
 USERS_FILE = "users.json"
+LAST_MSG_FILE = "last_messages.json"
 
 
 # ==============================
@@ -52,6 +53,20 @@ def load_users():
 def save_users(data):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_last():
+    if not os.path.exists(LAST_MSG_FILE):
+        with open(LAST_MSG_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+
+    with open(LAST_MSG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_last(data):
+    with open(LAST_MSG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
 
 
 # ==============================
@@ -112,20 +127,30 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
 
+    uid = str(message.from_user.id)
+    last = load_last()
+
+    # حذف رسالة الستارت السابقة إذا كانت موجودة
+    if uid in last:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=last[uid])
+        except:
+            pass  # إذا لم يستطع حذفها لا مشكلة
+
     # المالك
     if message.from_user.id == ADMIN_ID:
-        await message.answer("👑 أهلاً بك مالك البوت!", reply_markup=admin_panel())
-        return
+        sent = await message.answer("👑 أهلاً بك مالك البوت!", reply_markup=admin_panel())
+    else:
+        users = load_users()
+        if uid not in users:
+            users[uid] = 0
+            save_users(users)
 
-    # المستخدم العادي
-    users = load_users()
-    uid = str(message.from_user.id)
+        sent = await message.answer("مرحباً بك! ماذا تريد؟", reply_markup=user_main_menu())
 
-    if uid not in users:
-        users[uid] = 0
-        save_users(users)
-
-    await message.answer("مرحباً بك! ماذا تريد؟", reply_markup=user_main_menu())
+    # حفظ آخر رسالة
+    last[uid] = sent.message_id
+    save_last(last)
 
 
 # ==============================
