@@ -1,1 +1,3 @@
-# Telegram_bot-3
+# Telegram Accounts Shop Bot
+
+بوت بيع حسابات مع لوحة تحكم كاملة.
