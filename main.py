@@ -1,12 +1,11 @@
-# main.py
-# Telegram bot updated to use Heroku environment variables
-
 import asyncio
 import os
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.filters import CommandStart
 import json
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import CommandStart
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -16,7 +15,11 @@ DATA_FILE = "storage.json"
 def load_data():
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump({"tiktok": [], "instagram": [], "telegram": [], "whatsapp": [], "youtube": [], "pubg": [], "pes": [], "other": []}, f, ensure_ascii=False, indent=2)
+            json.dump({
+                "tiktok": [], "instagram": [], "telegram": [], "whatsapp": [],
+                "youtube": [], "pubg": [], "pes": [], "other": []
+            }, f, ensure_ascii=False, indent=2)
+
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -24,9 +27,11 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
 bot = Bot(TOKEN)
 dp = Dispatcher()
 
+# الخدمات
 services = {
     "tiktok": "شراء حساب تيكتوك (ضمان100%)",
     "instagram": "شراء حساب انستغرام (ضمان100%)",
@@ -38,6 +43,7 @@ services = {
     "other": "شراء حسابات اخرى💡"
 }
 
+# لوحة المستخدم
 def user_menu():
     kb = InlineKeyboardBuilder()
     for key, name in services.items():
@@ -45,6 +51,7 @@ def user_menu():
     kb.adjust(1)
     return kb.as_markup()
 
+# لوحة الإدارة
 def admin_panel():
     kb = InlineKeyboardBuilder()
     kb.button(text="➕ اضافه حسابات", callback_data="admin_add")
@@ -52,13 +59,22 @@ def admin_panel():
     kb.adjust(1)
     return kb.as_markup()
 
+
+# الحالات
+class AddAccount(StatesGroup):
+    waiting_for_text = State()
+
+
+# بدء البوت
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
     if message.from_user.id == ADMIN_ID:
         await message.answer("👑 أهلاً بك مالك البوت!", reply_markup=admin_panel())
     else:
-        await message.answer("مرحباً بك! اختر الخدمة التي تريد شراء حساب منها:", reply_markup=user_menu())
+        await message.answer("مرحباً بك! اختر الخدمة:", reply_markup=user_menu())
 
+
+# شراء حساب
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy_category(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -66,46 +82,66 @@ async def buy_category(callback: types.CallbackQuery):
     stock = data[key]
 
     if len(stock) == 0:
-        await callback.message.answer("❌ لا توجد حسابات متوفرة حالياً لهذه الخدمة.")
+        await callback.message.answer("❌ لا توجد حسابات متوفرة حالياً.")
     else:
         item = stock.pop(0)
         save_data(data)
-        await callback.message.answer(f"✔️ تم حجز حساب لك:\n{item}")
+        await callback.message.answer(f"✔️ تم تسليم الحساب:\n{item}")
 
     await callback.answer()
 
+
+# إضافة حساب (اختيار الخدمة)
 @dp.callback_query(F.data == "admin_add")
 async def admin_add(callback: types.CallbackQuery):
     kb = InlineKeyboardBuilder()
     for key, name in services.items():
         kb.button(text=name, callback_data=f"add_{key}")
     kb.adjust(1)
+
     await callback.message.answer("اختر الخدمة لإضافة حساب:", reply_markup=kb.as_markup())
     await callback.answer()
 
+
+# اختيار نوع الخدمة لإضافة حساب
 @dp.callback_query(F.data.startswith("add_"))
-async def admin_add_type(callback: types.CallbackQuery):
+async def admin_add_type(callback: types.CallbackQuery, state: FSMContext):
     key = callback.data.split("_")[1]
-    await callback.message.answer(f"أرسل الكليشة الخاصة بحساب {services[key]}")
-    dp.message.register(process_add_account, F.text, key=key)
+
+    await state.update_data(service_key=key)
+
+    await callback.message.answer(f"أرسل الآن كليشة الحساب لقسم:\n{services[key]}")
+
+    await state.set_state(AddAccount.waiting_for_text)
     await callback.answer()
 
-async def process_add_account(message: types.Message, key):
-    data = load_data()
-    data[key].append(message.text)
-    save_data(data)
-    await message.answer("✔️ تم حفظ الحساب داخل المخزون")
-    dp.message.unregister(process_add_account)
 
+# استقبال كليشة الحساب
+@dp.message(AddAccount.waiting_for_text)
+async def process_add_account(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    key = data["service_key"]
+
+    db = load_data()
+    db[key].append(message.text)
+    save_data(db)
+
+    await message.answer("✔ تم حفظ الحساب في المخزون بنجاح.")
+    await state.clear()
+
+
+# عرض المخزون
 @dp.callback_query(F.data == "admin_stock")
 async def admin_stock(callback: types.CallbackQuery):
     kb = InlineKeyboardBuilder()
     for key, name in services.items():
         kb.button(text=name, callback_data=f"stock_{key}")
     kb.adjust(1)
-    await callback.message.answer("اختر الخدمة لعرض المخزون:", reply_markup=kb.as_markup())
+    await callback.message.answer("اختر الخدمة:", reply_markup=kb.as_markup())
     await callback.answer()
 
+
+# عرض المخزون حسب الخدمة
 @dp.callback_query(F.data.startswith("stock_"))
 async def admin_show_stock(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -113,15 +149,18 @@ async def admin_show_stock(callback: types.CallbackQuery):
     items = data[key]
 
     if len(items) == 0:
-        await callback.message.answer("❌ لا يوجد أي حساب في المخزون لهذا القسم.")
+        await callback.message.answer("❌ المخزون فارغ.")
     else:
         text = "\n\n".join(items)
         await callback.message.answer(f"📦 مخزون {services[key]}:\n\n{text}")
 
     await callback.answer()
 
+
+# تشغيل البوت
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
